@@ -1,0 +1,74 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat CLAUDE.md 2>/dev/null"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_input.path // empty' | grep -qiE '(node_modules|dist/|build/|\\.vite/|\\.cache/|\\.turbo/|\\.map$|\\.min\\.(js|css)$|package-lock|yarn\\.lock|pnpm-lock|\\.(png|jpg|jpeg|gif|webp|ico|svg|mp3|ogg|wav|m4a|mp4|webm|mov|ttf|woff2?|eot|wasm)$)' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Binary or build artifact — not useful in context\"}}' || exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); F=$(jq -r '.tool_input.file_path' <<<\"$INPUT\"); S=$(jq -r '.session_id // \"default\"' <<<\"$INPUT\"); L=\"/tmp/claude-reads-$S\"; if grep -qxF \"$F\" \"$L\" 2>/dev/null; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Already read this file this session. Use what you have, or ask the user to confirm it changed.\"}}'; else echo \"$F\" >> \"$L\"; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_response.output // \"\"' | awk 'NR<=50 || NR>=(NR-20)' | head -c 8000"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_response.output // \"\"' | head -n 80"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx prettier --write '**/*.{js,ts,html,css,json}' --log-level silent 2>/dev/null; if [ -d dist ]; then SIZE=$(du -sk dist 2>/dev/null | cut -f1); BUDGET=500; if [ \"$SIZE\" -gt \"$BUDGET\" ]; then echo \"⚠️  Bundle: ${SIZE}KB (budget ${BUDGET}KB) — exceeded by $((SIZE-BUDGET))KB\"; else echo \"✓ Bundle: ${SIZE}KB / ${BUDGET}KB\"; fi; fi; INPUT=$(cat); MSGS=$(jq -r '.transcript_path // empty' <<<\"$INPUT\" | xargs wc -l 2>/dev/null | awk '{print $1}'); if [ \"${MSGS:-0}\" -gt 80 ]; then echo '💡 Session is long — consider /compact before next major task.'; fi; osascript -e 'display notification \"Idle\" with title \"Claude Code\"' 2>/dev/null"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Post-compact: re-read CLAUDE.md, preserve the current game system being worked on, discard unrelated discussion.'"
+          }
+        ]
+      }
+    ]
+  }
+}
